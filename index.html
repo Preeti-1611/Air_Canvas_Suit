@@ -141,26 +141,38 @@
 
     <!-- JavaScript for Button Actions -->
     <script>
-        function launchCanvas() {
-            fetch('/launch_canvas')
-                .then(response => response.text())
-                .then(data => alert(data))
-                .catch(error => alert("Failed to launch Air Canvas"));
-        }
+async function launchCanvas() {
+    const res = await fetch('/launch_canvas');
+    const data = await res.json();
 
-        function launchPPT() {
-            fetch('/launch_ppt')
-                .then(response => response.text())
-                .then(data => alert(data))
-                .catch(error => alert("Failed to launch PPT Viewer"));
-        }
+    if (data.status === "success") {
+        console.log("Canvas started");
+    } else {
+        alert("Error: " + data.message);
+    }
+}
 
-        function launchSystem() {
-            fetch('/launch_system')
-                .then(response => response.text())
-                .then(data => alert(data))
-                .catch(error => alert("Failed to launch System Controller"));
-        }
-    </script>
+async function launchPPT() {
+    const res = await fetch('/launch_ppt');
+    const data = await res.json();
+
+    if (data.status === "success") {
+        console.log("PPT started");
+    } else {
+        alert("Error: " + data.message);
+    }
+}
+
+async function launchSystem() {
+    const res = await fetch('/launch_system');
+    const data = await res.json();
+
+    if (data.status === "success") {
+        console.log("System started");
+    } else {
+        alert("Error: " + data.message);
+    }
+}
+</script>
 </body>
 </html>
