@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Air Canvas Web App</title>
+  <!-- MediaPipe Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #222;
+      font-family: 'Arial', sans-serif;
+    }
+    .container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    video {
+      display: none;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+    }
+    #videoCanvas { z-index: 1; }
+    #drawingCanvas { z-index: 2; pointer-events: none; }
+    #uiCanvas { z-index: 3; pointer-events: none; }
+    
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 2rem;
+      z-index: 10;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+    }
+    
+    .back-btn {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: #cc2222;
+      color: white;
+      text-decoration: none;
+      padding: 10px 20px;
+      border-radius: 8px;
+      z-index: 5;
+      font-weight: bold;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">Loading Camera & AI Models...</div>
+  
+  <div class="container">
+    <video class="input_video" autoplay playsinline></video>
+    <canvas id="videoCanvas"></canvas>
+    <canvas id="drawingCanvas"></canvas>
+    <canvas id="uiCanvas"></canvas>
+    <a href="/" class="back-btn">Go Back</a>
+  </div>
+
+  <script>
+    const videoElement = document.querySelector('.input_video');
+    const videoCanvas = document.getElementById('videoCanvas');
+    const videoCtx = videoCanvas.getContext('2d');
+    const drawingCanvas = document.getElementById('drawingCanvas');
+    const drawingCtx = drawingCanvas.getContext('2d');
+    const uiCanvas = document.getElementById('uiCanvas');
+    const uiCtx = uiCanvas.getContext('2d');
+    const loadingText = document.getElementById('loading');
+
+    let width, height;
+    function resize() {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      videoCanvas.width = width; videoCanvas.height = height;
+      drawingCanvas.width = width; drawingCanvas.height = height;
+      uiCanvas.width = width; uiCanvas.height = height;
+      
+      // Mirror the video canvas so movements feel natural
+      videoCtx.translate(width, 0);
+      videoCtx.scale(-1, 1);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Tools & Colors setup
+    let color = "blue";
+    const colors = {
+      "blue": "#2575fc",
+      "green": "#00d700",
+      "red": "#ff3333",
+      "eraser": "rgba(0,0,0,1.0)"
+    };
+    
+    let px = 0, py = 0; // Previous drawing coordinates
+
+    function drawUI() {
+      uiCtx.clearRect(0, 0, width, height);
+      
+      let boxW = width / 5;
+      let boxH = 80;
+      let margin = 20;
+      let topPadding = 20;
+      
+      // Draw Toolbar boxes
+      uiCtx.fillStyle = colors["blue"]; uiCtx.fillRect(margin, topPadding, boxW - margin*2, boxH);
+      uiCtx.fillStyle = colors["green"]; uiCtx.fillRect(boxW + margin, topPadding, boxW - margin*2, boxH);
+      uiCtx.fillStyle = colors["red"]; uiCtx.fillRect(boxW*2 + margin, topPadding, boxW - margin*2, boxH);
+      
+      uiCtx.fillStyle = "#111"; // Eraser box
+      uiCtx.fillRect(boxW*3 + margin, topPadding, boxW - margin*2, boxH);
+      
+      uiCtx.fillStyle = "#666"; // Clear box
+      uiCtx.fillRect(boxW*4 + margin, topPadding, boxW - margin*2, boxH);
+      
+      uiCtx.font = "bold 24px Arial";
+      uiCtx.fillStyle = "white";
+      uiCtx.textAlign = "center";
+      uiCtx.textBaseline = "middle";
+      
+      let textY = topPadding + boxH/2;
+      uiCtx.fillText("Blue", margin + (boxW-margin*2)/2, textY);
+      uiCtx.fillText("Green", boxW + margin + (boxW-margin*2)/2, textY);
+      uiCtx.fillText("Red", boxW*2 + margin + (boxW-margin*2)/2, textY);
+      uiCtx.fillText("Eraser", boxW*3 + margin + (boxW-margin*2)/2, textY);
+      uiCtx.fillText("Clear All", boxW*4 + margin + (boxW-margin*2)/2, textY);
+      
+      // Highlight current selected tool
+      uiCtx.lineWidth = 5;
+      uiCtx.strokeStyle = "white";
+      if(color === "blue") uiCtx.strokeRect(margin, topPadding, boxW - margin*2, boxH);
+      else if(color === "green") uiCtx.strokeRect(boxW + margin, topPadding, boxW - margin*2, boxH);
+      else if(color === "red") uiCtx.strokeRect(boxW*2 + margin, topPadding, boxW - margin*2, boxH);
+      else if(color === "eraser") uiCtx.strokeRect(boxW*3 + margin, topPadding, boxW - margin*2, boxH);
+    }
+
+    function onResults(results) {
+      if(loadingText) loadingText.style.display = 'none'; // Hide loading state
+      
+      // Draw video frame
+      videoCtx.drawImage(results.image, 0, 0, width, height);
+      drawUI();
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        
+        // We mirror X manually because we mirrored the video context
+        let cx = (1 - landmarks[8].x) * width;
+        let cy = landmarks[8].y * height;
+        
+        // Check if fingers are up (comparing tip to pip joint 'y' values)
+        let indexUp = landmarks[8].y < landmarks[6].y;
+        let middleUp = landmarks[12].y < landmarks[10].y;
+        
+        // 2 Fingers Up: Selection Mode
+        if (indexUp && middleUp) {
+          px = 0; py = 0; // Reset drawing line connection
+          
+          // Draw selection cursor
+          uiCtx.beginPath();
+          uiCtx.arc(cx, cy, 25, 0, 2*Math.PI);
+          uiCtx.fillStyle = "rgba(255,255,255,0.7)";
+          uiCtx.fill();
+          uiCtx.strokeStyle = "#333";
+          uiCtx.lineWidth = 2;
+          uiCtx.stroke();
+          
+          // Selection bounds
+          if (cy < 120) {
+            let boxW = width / 5;
+            if (cx < boxW) color = "blue";
+            else if (cx < boxW*2) color = "green";
+            else if (cx < boxW*3) color = "red";
+            else if (cx < boxW*4) color = "eraser";
+            else if (cx < width) {
+              // Clear canvas
+              drawingCtx.clearRect(0, 0, width, height);
+            }
+          }
+        } 
+        // 1 Finger Up: Drawing Mode
+        else if (indexUp && !middleUp) {
+          // Draw cursor
+          uiCtx.beginPath();
+          uiCtx.arc(cx, cy, 15, 0, 2*Math.PI);
+          uiCtx.fillStyle = color === "eraser" ? "white" : colors[color];
+          uiCtx.fill();
+          
+          if (px === 0 && py === 0) { px = cx; py = cy; }
+          
+          if (color === "eraser") {
+            drawingCtx.globalCompositeOperation = "destination-out";
+            drawingCtx.lineWidth = 60;
+          } else {
+            drawingCtx.globalCompositeOperation = "source-over";
+            drawingCtx.strokeStyle = colors[color];
+            drawingCtx.lineWidth = 15;
+          }
+          
+          drawingCtx.lineCap = "round";
+          drawingCtx.beginPath();
+          drawingCtx.moveTo(px, py);
+          drawingCtx.lineTo(cx, cy);
+          drawingCtx.stroke();
+          
+          px = cx; py = cy;
+        } else {
+          // Fingers are curled/resting
+          px = 0; py = 0;
+        }
+      }
+    }
+
+    // Initialize MediaPipe Hands
+    const hands = new Hands({locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }});
+    
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+    hands.onResults(onResults);
+
+    // Initialize Camera feed
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({image: videoElement});
+      },
+      width: 1280,
+      height: 720
+    });
+    camera.start().catch(err => {
+        alert("Camera permission denied or camera not found. This app requires a webcam!");
+    });
+  </script>
+</body>
+</html>
